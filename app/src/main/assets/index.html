@@ -36,7 +36,7 @@
   <details class="detail" id="batch-section"><summary>Paste a past sequence</summary><p>Useful when you already have results written down. Type them oldest first, separated by commas or new lines, like <strong>×10:7, ×10:6, ×50:9</strong>. Older format <strong>7x10, 6x10, 9x50</strong> works too.</p><label for="batch" class="muted" style="font-size:12px">Multiplier : total</label><textarea id="batch" placeholder="×1:7, ×10:9, ×10:6" spellcheck="false"></textarea><button type="button" id="add-batch" class="primary">Add past rolls</button><p class="smallnote">Pasted results train the model but are not treated as live predictions. Entries are appended in the order written.</p><p id="batch-error" class="alert" role="alert"></p></details>
  </section>
  <section class="card" aria-labelledby="test-title"><div class="eyebrow">04 · Reality check</div><h2 class="heading" id="test-title">Does it actually predict better?</h2><p class="caption">Test each historical prediction against the following result, using only earlier entries.</p>
-  <div class="statline"><span>Exact next-total guesses</span><strong id="test-hit">—</strong></div><div class="statline"><span>Always guessing 7</span><strong id="test-hit-7">—</strong></div><div class="statline"><span>Prediction checks</span><strong id="test-count">0</strong></div><div class="statline"><span>Pattern model average error</span><strong id="test-model">—</strong></div><div class="statline"><span>Fair-dice average error</span><strong id="test-fair">—</strong></div><span id="test-verdict" class="badge">Need more rolls</span><p id="test-explain" class="test-explain">At least 40 earlier results are needed before checking future predictions. A smaller average error is better; past patterns do not guarantee future rolls.</p>
+  <div class="statline"><span>Exact next-total guesses</span><strong id="test-hit">—</strong></div><div class="statline"><span>Always guessing 7</span><strong id="test-hit-7">—</strong></div><div class="statline"><span>Prediction checks</span><strong id="test-count">0</strong></div><div class="statline"><span>Pattern model average error</span><strong id="test-model">—</strong></div><div class="statline"><span>Frequency-only average error</span><strong id="test-freq">—</strong></div><div class="statline"><span>Fair-dice average error</span><strong id="test-fair">—</strong></div><span id="test-verdict" class="badge">Need more rolls</span><p id="test-explain" class="test-explain">At least 40 earlier results are needed before checking future predictions. A smaller average error is better; past patterns do not guarantee future rolls.</p>
   <details class="detail"><summary>Data &amp; backup</summary><p>History is saved in this browser on this device. Export regularly. Import can also read previous RollLab v3 backups.</p><div class="two"><button type="button" class="quietbtn" id="export">↓ Backup JSON</button><button type="button" class="quietbtn" id="csv">↓ CSV</button><button type="button" class="quietbtn" id="import">↑ Import backup</button></div><input id="file" type="file" accept="application/json,.json" hidden><hr class="line"><button type="button" class="quietbtn danger" id="clear">Clear saved rolls</button></details>
  </section>
  <p class="footer">History cannot predict independent random or hidden server-generated dice. Unofficial fan-made tool; not affiliated with Scopely or MONOPOLY GO. No login, game integration or dice generation. Results are probabilistic and may be no better than normal dice odds. To install offline on Android, host the bundled PWA over HTTPS.</p>
@@ -137,20 +137,21 @@
    if(cachedCheck&&cachedCheck.len===state.rolls.length)return cachedCheck;
    const rs=state.rolls,n=rs.length,scores={};
    for(const id of EXPERTS)scores[id]=0;
-   let sumModel=0,sumFair=0,count=0,exact=0,sevens=0;
+   let sumModel=0,sumFair=0,sumFreq=0,count=0,exact=0,sevens=0;
    const start=Math.max(35,n-420),evaluation=Math.max(85,n-160);
    for(let i=start;i<n;i++){
      const r=rs[i],raw=predictRaw(rs.slice(Math.max(0,i-CAP),i),r.multiplier);
      const p=blend(raw,scores,i-start),actual=r.n-2;
+     const freqOnly=raw.experts.mult.p.map((v,k)=>.75*v+.25*FAIR[k]);
      if(i>=evaluation){
-       sumModel-=Math.log(p[actual]);sumFair-=Math.log(FAIR[actual]);count++;
+       sumModel-=Math.log(p[actual]);sumFair-=Math.log(FAIR[actual]);sumFreq-=Math.log(freqOnly[actual]);count++;
        let chosen=2;for(let v=3;v<=12;v++)if(p[v-2]>p[chosen-2])chosen=v;
        if(chosen===r.n)exact++;
        if(r.n===7)sevens++;
      }
      updateScores(scores,raw,r.n);
    }
-   cachedCheck={len:n,n:count,model:count?sumModel/count:null,fair:count?sumFair/count:null,exact,sevens,scores,seen:n-start};
+   cachedCheck={len:n,n:count,model:count?sumModel/count:null,fair:count?sumFair/count:null,freq:count?sumFreq/count:null,exact,sevens,scores,seen:n-start};
    return cachedCheck;
  }
  function calc(history,m,validated){
@@ -177,10 +178,10 @@
      const rank=best.raw.map((v,i)=>({n:i+2,v})).sort((a,b)=>b.v-a.v||a.n-b.n);
      $('pattern-explain').textContent=(isLane?'At ×'+m:'Across all rolls')+', your sequence '+suffix+' appeared '+best.matches+' earlier times before another ×'+m+' roll. Next totals after those matches included '+rank[0].n+' ('+rank[0].v+'/'+best.matches+'). RollLab combines this with other tested patterns.';
    }else $('pattern-explain').textContent='Few repeated sequences at ×'+m+' so far. Record rolls in exact order; the app searches for 1-, 2- and 3-roll patterns.';
-   const advantage=c.n?c.fair-c.model:0;
+   const advantage=c.n?Math.min(c.fair,c.freq)-c.model:0;
    if(state.rolls.length<85){$('signal').textContent='Learning · '+number(state.rolls.length)+' rolls';}
-   else if(c.n>=100&&advantage>.025&&f.best?.matches>=5){$('signal').textContent='Possible pattern · unconfirmed';}
-   else{$('signal').textContent='No verified predictive edge';}
+   else if(c.n>=100&&advantage>.025&&f.best?.matches>=5){$('signal').textContent='Possible sequence signal · unconfirmed';}
+   else{$('signal').textContent='No verified sequence advantage';}
    $('model-note').textContent='Predictions use sequence matches, multiplier-specific history and adaptive weighting from earlier prediction errors. '+(c.n<100?'Continue logging rolls to test whether any pattern persists.':'Even an apparent advantage in a short test can occur by chance.');
    const bars=$('bars');bars.replaceChildren();for(let n=2;n<=12;n++){
      const el=document.createElement('div');el.className='column';const w=document.createElement('div');w.className='barspace';const b=document.createElement('div');b.className='bar';b.style.height=Math.max(2,100*p[n-2]/.25)+'%';w.append(b);
@@ -191,13 +192,13 @@
    $('sequence-note').textContent=n>20?'Showing the latest 20 of '+number(n)+' rolls.':'Showing '+number(n)+' of '+number(n)+' rolls.';
    const full=$('full-sequence');const grid=$('history');
    if(full.open){grid.replaceChildren();const from=Math.max(0,n-600);if(from){const e=document.createElement('span');e.className='empty';e.textContent='Displaying the latest 600 rolls · export CSV for all history.';grid.append(e)}for(let i=from;i<n;i++)grid.append(chip(state.rolls[i],i))}
-   $('test-count').textContent=number(c.n);$('test-model').textContent=c.n?c.model.toFixed(3):'—';$('test-fair').textContent=c.n?c.fair.toFixed(3):'—';
+   $('test-freq').textContent=c.n?c.freq.toFixed(3):'—';$('test-count').textContent=number(c.n);$('test-model').textContent=c.n?c.model.toFixed(3):'—';$('test-fair').textContent=c.n?c.fair.toFixed(3):'—';
    $('test-hit').textContent=c.n?c.exact+' / '+c.n+' ('+pct(c.exact/c.n)+')':'—';
    $('test-hit-7').textContent=c.n?c.sevens+' / '+c.n+' ('+pct(c.sevens/c.n)+')':'—';
    const badge=$('test-verdict'),expl=$('test-explain');
    if(c.n<70){badge.textContent='Need more test rolls';expl.textContent='After 85 rolls the app begins scoring each next-roll forecast against its actual outcome. It trains only on earlier rolls.'}
-   else if(c.model<c.fair-.025){badge.textContent='Better in this sample · unconfirmed';expl.textContent='On '+c.n+' earlier blind-in-time checks, the sequence model had lower average log loss than ordinary fair-dice odds. A short-term lead may be accidental.'}
-   else{badge.textContent='No reliable advantage demonstrated';expl.textContent='On '+c.n+' earlier blind-in-time checks, the sequence model did not clearly outperform ordinary fair-dice odds. It cannot reliably forecast independent random dice.'}
+   else if(c.model<c.freq-.025&&c.model<c.fair-.025){badge.textContent='Sequence lead in this sample · unconfirmed';expl.textContent='On '+c.n+' earlier blind-in-time checks, the sequence model had lower error than both simple frequency counts and fair-dice odds. This may still be coincidence.'}
+   else{badge.textContent='No verified sequence advantage';expl.textContent='On '+c.n+' earlier blind-in-time checks, sequence forecasting did not clearly beat the simple frequency-only model and fair-dice reference. Independent random dice cannot be predicted from prior totals.'}
  }
  function changed(msg){cachedCheck=null;const ok=save();render();notify(ok?msg:'Save failed. Export a backup before leaving.')}
  function setMultiplier(){const m=integer($('mult').value);if(validMult(m)){state.multiplier=m;save();render()}else render()}
